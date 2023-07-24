@@ -148,21 +148,21 @@
 // Module specific Functions Declaration
 //----------------------------------------------------------------------------------
 #if defined(SUPPORT_FILEFORMAT_OBJ)
-static Model LoadOBJ(const char *fileName);     // Load OBJ mesh data
+static Model LoadOBJ(const char *fileText, int dataSize, const char *workingDir, const char *fileName);     // Load OBJ mesh data
 #endif
 #if defined(SUPPORT_FILEFORMAT_IQM)
-static Model LoadIQM(const char *fileName);     // Load IQM mesh data
+static Model LoadIQM(const char *fileText, int dataSize, const char *fileName);     // Load IQM mesh data
 static ModelAnimation *LoadModelAnimationsIQM(const char *fileName, unsigned int *animCount);   // Load IQM animation data
 #endif
 #if defined(SUPPORT_FILEFORMAT_GLTF)
-static Model LoadGLTF(const char *fileName);    // Load GLTF mesh data
+static Model LoadGLTF(const char *fileText, int dataSize, const char *fileName);    // Load GLTF mesh data
 static ModelAnimation *LoadModelAnimationsGLTF(const char *fileName, unsigned int *animCount);  // Load GLTF animation data
 #endif
 #if defined(SUPPORT_FILEFORMAT_VOX)
-static Model LoadVOX(const char *filename);     // Load VOX mesh data
+static Model LoadVOX(const char *fileText, int dataSize, const char *fileName);     // Load VOX mesh data
 #endif
 #if defined(SUPPORT_FILEFORMAT_M3D)
-static Model LoadM3D(const char *filename);     // Load M3D mesh data
+static Model LoadM3D(const char *fileData, int bytesRead, const char *fileName);     // Load M3D mesh data
 static ModelAnimation *LoadModelAnimationsM3D(const char *fileName, unsigned int *animCount);   // Load M3D animation data
 #endif
 #if defined(SUPPORT_FILEFORMAT_OBJ) || defined(SUPPORT_FILEFORMAT_MTL)
@@ -1029,26 +1029,64 @@ void DrawGrid(int slices, float spacing)
     rlEnd();
 }
 
+Model LoadModelFromFile(const char *fileName)
+{
+    enum ModelType type = UNKNOWN;
+    
+#if defined(SUPPORT_FILEFORMAT_OBJ)
+    if (IsFileExtension(fileName, ".obj")) type = OBJ;
+#endif
+#if defined(SUPPORT_FILEFORMAT_IQM)
+    if (IsFileExtension(fileName, ".iqm")) type = IQM;
+#endif
+#if defined(SUPPORT_FILEFORMAT_GLTF)
+    if (IsFileExtension(fileName, ".gltf") || IsFileExtension(fileName, ".glb")) type = GLTF;
+#endif
+#if defined(SUPPORT_FILEFORMAT_VOX)
+    if (IsFileExtension(fileName, ".vox")) type = VOX;
+#endif
+#if defined(SUPPORT_FILEFORMAT_M3D)
+    if (IsFileExtension(fileName, ".m3d")) type = M3D;
+#endif
+
+    Model model = { 0 };
+    
+    char *fileText = LoadFileText(fileName);
+    if (fileText)
+    {
+        model = LoadModel(fileText, strlen(fileText), fileName, type);
+        UnloadFileText(fileText);
+    }
+
+    return model;
+}
+
 // Load model from files (mesh and material)
-Model LoadModel(const char *fileName)
+Model LoadModel(const char *modelData, int dataSize, const char* fileNameHint, enum ModelType modelType)
 {
     Model model = { 0 };
 
-#if defined(SUPPORT_FILEFORMAT_OBJ)
-    if (IsFileExtension(fileName, ".obj")) model = LoadOBJ(fileName);
-#endif
-#if defined(SUPPORT_FILEFORMAT_IQM)
-    if (IsFileExtension(fileName, ".iqm")) model = LoadIQM(fileName);
-#endif
-#if defined(SUPPORT_FILEFORMAT_GLTF)
-    if (IsFileExtension(fileName, ".gltf") || IsFileExtension(fileName, ".glb")) model = LoadGLTF(fileName);
-#endif
-#if defined(SUPPORT_FILEFORMAT_VOX)
-    if (IsFileExtension(fileName, ".vox")) model = LoadVOX(fileName);
-#endif
-#if defined(SUPPORT_FILEFORMAT_M3D)
-    if (IsFileExtension(fileName, ".m3d")) model = LoadM3D(fileName);
-#endif
+    switch(modelType)
+    {
+    case OBJ:
+        model = LoadOBJ(modelData, dataSize, NULL, fileNameHint);
+        break;
+    case IQM:
+        model = LoadIQM(modelData, dataSize, fileNameHint);
+        break;
+    case GLTF:
+        model = LoadGLTF(modelData, dataSize, fileNameHint);
+        break;
+    case VOX:
+        model = LoadVOX(modelData, dataSize, fileNameHint);
+        break;
+    case M3D:
+        model = LoadM3D(modelData, dataSize, fileNameHint);
+        break;
+    case UNKNOWN:
+    default:
+        break;
+    }
 
     // Make sure model transform is set to identity matrix!
     model.transform = MatrixIdentity();
@@ -1058,7 +1096,7 @@ Model LoadModel(const char *fileName)
         model.meshCount = 1;
         model.meshes = (Mesh *)RL_CALLOC(model.meshCount, sizeof(Mesh));
 #if defined(SUPPORT_MESH_GENERATION)
-        TRACELOG(LOG_WARNING, "MESH: [%s] Failed to load mesh data, default to cube mesh", fileName);
+        TRACELOG(LOG_WARNING, "MESH: [%s] Failed to load mesh data, default to cube mesh", fileNameHint);
         model.meshes[0] = GenMeshCube(1.0f, 1.0f, 1.0f);
 #else
         TRACELOG(LOG_WARNING, "MESH: [%s] Failed to load mesh data", fileName);
@@ -1072,7 +1110,7 @@ Model LoadModel(const char *fileName)
 
     if (model.materialCount == 0)
     {
-        TRACELOG(LOG_WARNING, "MATERIAL: [%s] Failed to load material data, default to white material", fileName);
+        TRACELOG(LOG_WARNING, "MATERIAL: [%s] Failed to load material data, default to white material", fileNameHint);
 
         model.materialCount = 1;
         model.materials = (Material *)RL_CALLOC(model.materialCount, sizeof(Material));
@@ -3901,7 +3939,7 @@ static void BuildPoseFromParentJoints(BoneInfo *bones, int boneCount, Transform 
 //  - A mesh is created for every material present in the obj file
 //  - the model.meshCount is therefore the materialCount returned from tinyobj
 //  - the mesh is automatically triangulated by tinyobj
-static Model LoadOBJ(const char *fileName)
+static Model LoadOBJ(const char *fileText, int dataSize, const char *workingDir, const char *fileName)
 {
     Model model = { 0 };
 
@@ -3912,17 +3950,16 @@ static Model LoadOBJ(const char *fileName)
     tinyobj_material_t *materials = NULL;
     unsigned int materialCount = 0;
 
-    char *fileText = LoadFileText(fileName);
-
     if (fileText != NULL)
     {
-        unsigned int dataSize = (unsigned int)strlen(fileText);
         char currentDir[1024] = { 0 };
-        strcpy(currentDir, GetWorkingDirectory());
-        const char *workingDir = GetDirectoryPath(fileName);
-        if (CHDIR(workingDir) != 0)
+        if (workingDir)
         {
-            TRACELOG(LOG_WARNING, "MODEL: [%s] Failed to change working directory", workingDir);
+            strcpy(currentDir, GetWorkingDirectory());
+            if (CHDIR(workingDir) != 0)
+            {
+                TRACELOG(LOG_WARNING, "MODEL: [%s] Failed to change working directory", workingDir);
+            }
         }
 
         unsigned int flags = TINYOBJ_FLAG_TRIANGULATE;
@@ -4034,17 +4071,18 @@ static Model LoadOBJ(const char *fileName)
         tinyobj_shapes_free(meshes, meshCount);
         tinyobj_materials_free(materials, materialCount);
 
-        UnloadFileText(fileText);
-
         RL_FREE(matFaces);
         RL_FREE(vCount);
         RL_FREE(vtCount);
         RL_FREE(vnCount);
         RL_FREE(faceCount);
-
-        if (CHDIR(currentDir) != 0)
+        
+        if (workingDir)
         {
-            TRACELOG(LOG_WARNING, "MODEL: [%s] Failed to change working directory", currentDir);
+            if (CHDIR(currentDir) != 0)
+            {
+                TRACELOG(LOG_WARNING, "MODEL: [%s] Failed to change working directory", currentDir);
+            }
         }
     }
 
@@ -4054,7 +4092,7 @@ static Model LoadOBJ(const char *fileName)
 
 #if defined(SUPPORT_FILEFORMAT_IQM)
 // Load IQM mesh data
-static Model LoadIQM(const char *fileName)
+static Model LoadIQM(const char *fileData, int fileSize, const char *fileName)
 {
     #define IQM_MAGIC     "INTERQUAKEMODEL" // IQM file magic number
     #define IQM_VERSION          2          // only IQM version 2 supported
@@ -4063,8 +4101,6 @@ static Model LoadIQM(const char *fileName)
     #define MESH_NAME_LENGTH    32          // Mesh name string length
     #define MATERIAL_NAME_LENGTH 32         // Material name string length
 
-    unsigned int fileSize = 0;
-    unsigned char *fileData = LoadFileData(fileName, &fileSize);
     unsigned char *fileDataPtr = fileData;
 
     // IQM file structs
@@ -4752,7 +4788,7 @@ static BoneInfo *LoadBoneInfoGLTF(cgltf_skin skin, int *boneCount)
 }
 
 // Load glTF file into model struct, .gltf and .glb supported
-static Model LoadGLTF(const char *fileName)
+static Model LoadGLTF(const char *fileData, int dataSize, const char *fileName)
 {
     /*********************************************************************************************
 
@@ -4795,10 +4831,6 @@ static Model LoadGLTF(const char *fileName)
     }
 
     Model model = { 0 };
-
-    // glTF file loading
-    unsigned int dataSize = 0;
-    unsigned char *fileData = LoadFileData(fileName, &dataSize);
 
     if (fileData == NULL) return model;
 
@@ -5214,9 +5246,6 @@ static Model LoadGLTF(const char *fileName)
     }
     else TRACELOG(LOG_WARNING, "MODEL: [%s] Failed to load glTF data", fileName);
 
-    // WARNING: cgltf requires the file pointer available while reading data
-    UnloadFileData(fileData);
-
     return model;
 }
 
@@ -5442,17 +5471,14 @@ static ModelAnimation *LoadModelAnimationsGLTF(const char *fileName, unsigned in
 
 #if defined(SUPPORT_FILEFORMAT_VOX)
 // Load VOX (MagicaVoxel) mesh data
-static Model LoadVOX(const char *fileName)
+static Model LoadVOX(const char *fileData, int fileSize, const char *fileName)
 {
     Model model = { 0 };
 
     int nbvertices = 0;
     int meshescount = 0;
-    unsigned int fileSize = 0;
-    unsigned char *fileData = NULL;
 
     // Read vox file into buffer
-    fileData = LoadFileData(fileName, &fileSize);
     if (fileData == 0)
     {
         TRACELOG(LOG_WARNING, "MODEL: [%s] Failed to load VOX file", fileName);
@@ -5466,8 +5492,6 @@ static Model LoadVOX(const char *fileName)
     if (ret != VOX_SUCCESS)
     {
         // Error
-        UnloadFileData(fileData);
-
         TRACELOG(LOG_WARNING, "MODEL: [%s] Failed to load VOX data", fileName);
         return model;
     }
@@ -5538,7 +5562,6 @@ static Model LoadVOX(const char *fileName)
 
     // Free buffers
     Vox_FreeArrays(&voxarray);
-    UnloadFileData(fileData);
 
     return model;
 }
@@ -5550,14 +5573,12 @@ unsigned char *m3d_loaderhook(char *fn, unsigned int *len) { return LoadFileData
 void m3d_freehook(void *data) { UnloadFileData((unsigned char *)data); }
 
 // Load M3D mesh data
-static Model LoadM3D(const char *fileName)
+static Model LoadM3D(const char *fileData, int bytesRead, const char *fileName)
 {
     Model model = { 0 };
 
     m3d_t *m3d = NULL;
     m3dp_t *prop = NULL;
-    unsigned int bytesRead = 0;
-    unsigned char *fileData = LoadFileData(fileName, &bytesRead);
     int i, j, k, l, n, mi = -2;
 
     if (fileData != NULL)
@@ -5568,7 +5589,6 @@ static Model LoadM3D(const char *fileName)
         {
             TRACELOG(LOG_WARNING, "MODEL: [%s] Failed to load M3D data, error code %d", fileName, m3d ? m3d->errcode : -2);
             if (m3d) m3d_free(m3d);
-            UnloadFileData(fileData);
             return model;
         }
         else TRACELOG(LOG_INFO, "MODEL: [%s] M3D data loaded successfully: %i faces/%i materials", fileName, m3d->numface, m3d->nummaterial);
@@ -5577,7 +5597,6 @@ static Model LoadM3D(const char *fileName)
         if (!m3d->numface)
         {
             m3d_free(m3d);
-            UnloadFileData(fileData);
             return model;
         }
 
@@ -5841,7 +5860,6 @@ static Model LoadM3D(const char *fileName)
         }
 
         m3d_free(m3d);
-        UnloadFileData(fileData);
     }
 
     return model;
@@ -5867,7 +5885,6 @@ static ModelAnimation *LoadModelAnimationsM3D(const char *fileName, unsigned int
         if (!m3d || M3D_ERR_ISFATAL(m3d->errcode))
         {
             TRACELOG(LOG_WARNING, "MODEL: [%s] Failed to load M3D data, error code %d", fileName, m3d ? m3d->errcode : -2);
-            UnloadFileData(fileData);
             return NULL;
         }
         else TRACELOG(LOG_INFO, "MODEL: [%s] M3D data loaded successfully: %i animations, %i bones, %i skins", fileName,
@@ -5877,7 +5894,6 @@ static ModelAnimation *LoadModelAnimationsM3D(const char *fileName, unsigned int
         if (!m3d->numaction || !m3d->numbone || !m3d->numskin)
         {
             m3d_free(m3d);
-            UnloadFileData(fileData);
             return NULL;
         }
 
@@ -5950,7 +5966,6 @@ static ModelAnimation *LoadModelAnimationsM3D(const char *fileName, unsigned int
         }
 
         m3d_free(m3d);
-        UnloadFileData(fileData);
     }
 
     return animations;
