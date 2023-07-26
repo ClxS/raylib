@@ -3518,13 +3518,24 @@ void DrawBillboard(Camera camera, Texture2D texture, Vector3 position, float siz
     DrawBillboardRec(camera, texture, source, position, (Vector2){ size, size }, tint);
 }
 
+// Draw a billboard
+void DrawBillboardRotated(Camera camera, Texture2D texture, Vector3 position, float size, Color tint, float rotation)
+{
+    Rectangle source = { 0.0f, 0.0f, (float)texture.width, (float)texture.height };
+
+    DrawBillboardRecRotated(camera, texture, source, position, (Vector2){ size, size }, tint, rotation);
+}
+
 // Draw a billboard (part of a texture defined by a rectangle)
 void DrawBillboardRec(Camera camera, Texture2D texture, Rectangle source, Vector3 position, Vector2 size, Color tint)
 {
-    // NOTE: Billboard locked on axis-Y
-    Vector3 up = { 0.0f, 1.0f, 0.0f };
+    DrawBillboardPro(camera, texture, source, position, camera.up, size, Vector2Zero(), 0.0f, tint);
+}
 
-    DrawBillboardPro(camera, texture, source, position, up, size, Vector2Zero(), 0.0f, tint);
+// Draw a billboard (part of a texture defined by a rectangle)
+void DrawBillboardRecRotated(Camera camera, Texture2D texture, Rectangle source, Vector3 position, Vector2 size, Color tint, float rotation)
+{
+    DrawBillboardPro(camera, texture, source, position, camera.up, size, Vector2Zero(), rotation, tint);
 }
 
 void DrawBillboardPro(Camera camera, Texture2D texture, Rectangle source, Vector3 position, Vector3 up, Vector2 size, Vector2 origin, float rotation, Color tint)
