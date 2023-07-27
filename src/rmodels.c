@@ -3540,6 +3540,11 @@ void DrawBillboardRecRotated(Camera camera, Texture2D texture, Rectangle source,
 
 void DrawBillboardPro(Camera camera, Texture2D texture, Rectangle source, Vector3 position, Vector3 up, Vector2 size, Vector2 origin, float rotation, Color tint)
 {
+    DrawBillboardProUvOffset(camera, texture, source, position, up, size, origin, Vector2Zero(), rotation, tint);
+}
+
+void DrawBillboardProUvOffset(Camera camera, Texture2D texture, Rectangle source, Vector3 position, Vector3 up, Vector2 size, Vector2 origin, Vector2 uvOffset, float rotation, Color tint)
+{
     // NOTE: Billboard size will maintain source rectangle aspect ratio, size will represent billboard width
     Vector2 sizeRatio = { size.x*(float)source.width/source.height, size.y };
 
@@ -3608,19 +3613,19 @@ void DrawBillboardPro(Camera camera, Texture2D texture, Rectangle source, Vector
         rlColor4ub(tint.r, tint.g, tint.b, tint.a);
 
         // Bottom-left corner for texture and quad
-        rlTexCoord2f((float)source.x/texture.width, (float)source.y/texture.height);
+        rlTexCoord2f((float)source.x/texture.width + uvOffset.x, (float)source.y/texture.height + uvOffset.y);
         rlVertex3f(topLeft.x, topLeft.y, topLeft.z);
 
         // Top-left corner for texture and quad
-        rlTexCoord2f((float)source.x/texture.width, (float)(source.y + source.height)/texture.height);
+        rlTexCoord2f((float)source.x/texture.width + uvOffset.x, (float)(source.y + source.height)/texture.height + uvOffset.y);
         rlVertex3f(bottomLeft.x, bottomLeft.y, bottomLeft.z);
 
         // Top-right corner for texture and quad
-        rlTexCoord2f((float)(source.x + source.width)/texture.width, (float)(source.y + source.height)/texture.height);
+        rlTexCoord2f((float)(source.x + source.width)/texture.width + uvOffset.x, (float)(source.y + source.height)/texture.height + uvOffset.y);
         rlVertex3f(bottomRight.x, bottomRight.y, bottomRight.z);
 
         // Bottom-right corner for texture and quad
-        rlTexCoord2f((float)(source.x + source.width)/texture.width, (float)source.y/texture.height);
+        rlTexCoord2f((float)(source.x + source.width)/texture.width + uvOffset.x, (float)source.y/texture.height + uvOffset.y);
         rlVertex3f(topRight.x, topRight.y, topRight.z);
     rlEnd();
 
