@@ -50,14 +50,6 @@
     #define RLAPI       // Functions defined as 'extern' by default (implicit specifiers)
 #endif
 
-#if defined(RCAMERA_STANDALONE)
-    #define CAMERA_CULL_DISTANCE_NEAR      0.01
-    #define CAMERA_CULL_DISTANCE_FAR    1000.0
-#else
-    #define CAMERA_CULL_DISTANCE_NEAR   RL_CULL_DISTANCE_NEAR
-    #define CAMERA_CULL_DISTANCE_FAR    RL_CULL_DISTANCE_FAR
-#endif
-
 //----------------------------------------------------------------------------------
 // Types and Structures Definition
 // NOTE: Below types are required for standalone usage
@@ -412,14 +404,14 @@ Matrix GetCameraProjectionMatrix(Camera *camera, float aspect)
 {
     if (camera->projection == CAMERA_PERSPECTIVE)
     {
-        return MatrixPerspective(camera->fovy*DEG2RAD, aspect, CAMERA_CULL_DISTANCE_NEAR, CAMERA_CULL_DISTANCE_FAR);
+        return MatrixPerspective(camera->fovy*DEG2RAD, aspect, camera->near, camera->far);
     }
     else if (camera->projection == CAMERA_ORTHOGRAPHIC)
     {
         double top = camera->fovy/2.0;
         double right = top*aspect;
 
-        return MatrixOrtho(-right, right, -top, top, CAMERA_CULL_DISTANCE_NEAR, CAMERA_CULL_DISTANCE_FAR);
+        return MatrixOrtho(-right, right, -top, top, camera->near, camera->far);
     }
 
     return MatrixIdentity();
